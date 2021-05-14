@@ -183,10 +183,11 @@ namespace PKLib_Method.Methods
         /// <returns></returns>
         /// <example>
         /// string para = "param1=value1;param2=value2";
-        /// NameValueCollection nv = para.ToNameValueCollection(';', '=');
-        /// foreach (var item in nv)
+        /// NameValueCollection _data = para.ToNameValueCollection(';', '=');
+        /// foreach (var item in _data.AllKeys)
         /// {
-        ///     Response.Write(item + "<BR>");
+        ///     string _name = item;
+        ///     string _val = _data[item];
         /// }
         /// </example>
         public static NameValueCollection ToNameValueCollection(this String inputValue, Char OuterSeparator, Char NameValueSeparator)
@@ -465,6 +466,36 @@ namespace PKLib_Method.Methods
             return url.ToString();
         }
 
+        public static string CreateUrl(string Uri, Dictionary<string, string> _params)
+        {
+            //判斷網址是否為空
+            if (string.IsNullOrEmpty(Uri))
+            {
+                return "";
+            }
+
+            //產生完整網址
+            StringBuilder url = new StringBuilder();
+            url.Append(Uri);
+
+            int row = 0;
+            foreach (var item in _params)
+            {
+                string pName = item.Key;
+                string pValue = item.Value;
+
+                url.Append(string.Format("{0}{1}={2}"
+                    , (row == 0) ? "?" : "&"
+                    , pName
+                    , HttpUtility.UrlEncode(pValue)
+                    ));
+
+                row++;
+            }
+
+            return url.ToString();
+        }
+
         /// <summary>
         /// 判斷字串內是否包含某字詞
         /// </summary>
@@ -498,6 +529,17 @@ namespace PKLib_Method.Methods
         public static string GetGuid()
         {
             return System.Guid.NewGuid().ToString();
+        }
+
+
+        /// <summary>
+        /// 取得TimeStamp String
+        /// </summary>
+        /// <returns></returns>
+        public static string GetTS()
+        {
+            long ts = Cryptograph.GetCurrentTime();
+            return ts.ToString();
         }
 
 
@@ -1939,6 +1981,11 @@ namespace PKLib_Method.Methods
 
         #region -- EXCEL匯出 --
 
+        /// <summary>
+        /// 匯出Excel, 預設鎖密碼
+        /// </summary>
+        /// <param name="DT">DataTable</param>
+        /// <param name="fileName">匯出檔名</param>
         public static void ExportExcel(DataTable DT, string fileName)
         {
             //default
@@ -1948,19 +1995,32 @@ namespace PKLib_Method.Methods
         /// <summary>
         /// 匯出Excel
         /// </summary>
-        /// <param name="DT"></param>
-        /// <param name="fileName"></param>
+        /// <param name="DT">DataTable</param>
+        /// <param name="fileName">匯出檔名</param>
+        /// <param name="setPassword">true/false</param>
         /// <remarks>
         /// 使用元件:ClosedXML
         /// </remarks>
         /// <seealso cref="https://github.com/ClosedXML/ClosedXML/wiki"/>
         public static void ExportExcel(DataTable DT, string fileName, bool setPassword)
         {
+            ExportExcel(DT, fileName, setPassword, "PKDataList");
+        }
+
+        /// <summary>
+        /// 匯出Excel
+        /// </summary>
+        /// <param name="DT">DataTable</param>
+        /// <param name="fileName">匯出檔名</param>
+        /// <param name="setPassword">true/false</param>
+        /// <param name="sheetName">工作表名稱</param>
+        public static void ExportExcel(DataTable DT, string fileName, bool setPassword, string sheetName)
+        {
             //宣告
             XLWorkbook wbook = new XLWorkbook();
 
             //-- 工作表設定 Start --
-            var ws = wbook.Worksheets.Add(DT, "PKDataList");
+            var ws = wbook.Worksheets.Add(DT, sheetName);
 
             if (setPassword)
             {
@@ -2019,6 +2079,86 @@ namespace PKLib_Method.Methods
 
             httpResponse.End();
         }
+
+        /// <summary>
+        /// 匯出Excel, 多張工作表
+        /// </summary>
+        /// <param name="dataList">列舉 DataTable</param>
+        /// <param name="fileName">匯出檔名</param>
+        /// <param name="setPassword">true/false</param>
+        /// <param name="sheetList">列舉 string</param>
+        public static void ExportExcelMultiple(List<DataTable> dataList, string fileName, bool setPassword, List<string> sheetList)
+        {
+            //宣告
+            XLWorkbook wbook = new XLWorkbook();
+
+            //-- 工作表設定 Start --
+            for (int row = 0; row < dataList.Count; row++)
+            {
+                DataTable DT = dataList[row];
+                string sheetName = sheetList[row];
+
+                var ws = wbook.Worksheets.Add(DT, sheetName);
+
+                if (setPassword)
+                {
+                    //鎖定工作表, 並設定密碼
+                    ws.Protect("iLoveProkits25")    //Set Password
+                        .SetFormatCells(true)   // Cell Formatting
+                        .SetInsertColumns() // Inserting Columns
+                        .SetDeleteColumns() // Deleting Columns
+                        .SetDeleteRows();   // Deleting Rows
+                }
+
+                //細項設定
+                ws.Tables.FirstOrDefault().ShowAutoFilter = false;  //停用自動篩選
+                ws.Style.Font.FontName = "Microsoft JhengHei";  //字型名稱
+                ws.Style.Font.FontSize = 10;
+
+                //修改標題列
+                var header = ws.FirstRowUsed(false);
+                //header.Style.Fill.BackgroundColor = XLColor.Green;
+                //header.Style.Font.FontColor = XLColor.Yellow;
+                header.Style.Font.FontSize = 12;
+                header.Style.Font.Bold = true;
+                header.Height = 22;
+                header.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+            }
+
+            //-- 工作表設定 End --
+
+            //Http Response & Request
+            var resp = HttpContext.Current.Response;
+            var req = HttpContext.Current.Request;
+            HttpResponse httpResponse = resp;
+            httpResponse.Clear();
+            // 編碼
+            httpResponse.ContentEncoding = Encoding.UTF8;
+            // 設定網頁ContentType
+            httpResponse.ContentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+            // 匯出檔名
+            var browser = req.Browser.Browser;
+            var exportFileName = browser.Equals("Firefox", StringComparison.OrdinalIgnoreCase)
+                ? fileName
+                : HttpUtility.UrlEncode(fileName, Encoding.UTF8);
+
+            resp.AddHeader(
+                "Content-Disposition",
+                string.Format("attachment;filename={0}", exportFileName));
+
+            // Flush the workbook to the Response.OutputStream
+            using (MemoryStream memoryStream = new MemoryStream())
+            {
+                wbook.SaveAs(memoryStream);
+                memoryStream.WriteTo(httpResponse.OutputStream);
+                memoryStream.Close();
+                //memoryStream.ToArray(); 轉成byte
+            }
+
+            httpResponse.End();
+        }
+
 
 
         /// <summary>
